@@ -29,6 +29,11 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
       ),
     );
   }
+  // Ensure default values are populated for new fields or older configurations.
+  $defaults += array(
+    'pdf_to_image_alt_mode' => 'title',
+    'pdf_to_image_alt_token' => '[node:title]',
+  );
 
   // Get image fields on this entity as options for the select field.
   $options = array();
@@ -79,6 +84,31 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
     ),
     '#default_value' => $defaults['format'],
     '#states' => $states,
+  );
+  $form['instance']['settings']['pdf_to_image']['pdf_to_image_alt_mode'] = array(
+    '#type' => 'select',
+    '#title' => t('Alt text mode'),
+    '#description' => t('Choose how alternative (alt) text is generated for accessibility compliance (e.g. WAVE or WCAG). This alt text will be saved along with the generated image files.'),
+    '#options' => array(
+      'title' => t('Entity Title / Name'),
+      'filename' => t('Source PDF Filename'),
+      'token' => t('Custom Token Pattern'),
+      'none' => t('Leave Empty / None'),
+    ),
+    '#default_value' => $defaults['pdf_to_image_alt_mode'],
+    '#states' => $states,
+  );
+  $form['instance']['settings']['pdf_to_image']['pdf_to_image_alt_token'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Alt text token pattern'),
+    '#description' => t('Specify a pattern of tokens to construct the alt text. Example: <code>[node:title]</code>. This field supports tokens.') . ' ' . theme('token_tree_link', array('token_types' => array($instance['entity_type']))),
+    '#default_value' => $defaults['pdf_to_image_alt_token'],
+    '#states' => array(
+      'visible' => array(
+        ':input[name$="[pdf_to_image][pdf_to_image_alt_mode]"]' => array('value' => 'token'),
+        ':input[name$="[pdf_to_image][image_field]"]' => array('!value' => ''),
+      ),
+    ),
   );
   $form['instance']['settings']['pdf_to_image']['options'] = array(
     '#type' => 'fieldset',
@@ -142,6 +172,10 @@ function pdf_to_image_entity_presave($entity, $type) {
 
   foreach ($file_fields as $file_field) {
     $settings = $file_field['settings']['pdf_to_image'];
+    $settings += array(
+      'pdf_to_image_alt_mode' => 'title',
+      'pdf_to_image_alt_token' => '[node:title]',
+    );
     $image_field = $settings['image_field'];
 
     // Get the old and new file for this field and its associated image field.
@@ -167,8 +201,40 @@ function pdf_to_image_entity_presave($entity, $type) {
       continue;
     }
 
+    // Determine the raw alt text based on settings.
+    $raw_alt = '';
+    switch ($settings['pdf_to_image_alt_mode']) {
+      case 'filename':
+        $raw_alt = pathinfo($file->filename, PATHINFO_FILENAME);
+        break;
+
+      case 'token':
+        $raw_alt = token_replace($settings['pdf_to_image_alt_token'], array($type => $entity));
+        break;
+
+      case 'none':
+        $raw_alt = '';
+        break;
+
+      case 'title':
+      default:
+        if (isset($entity->title)) {
+          $raw_alt = $entity->title;
+        }
+        elseif (isset($entity->name)) {
+          $raw_alt = $entity->name;
+        }
+        break;
+    }
+    // Truncate and strip HTML tags to prevent DB/markup issues.
+    $alt_text = truncate_utf8(strip_tags($raw_alt), 512);
+
     // Check if this file already exists and, if so, move on.
     if (!empty($old_files) && $file->fid == $old_files[0]['fid'] && !empty($new_images)) {
+      // Update alt text on the existing images if they changed.
+      foreach ($new_images as $delta => $image_item) {
+        $entity->{$image_field}[$entity->langcode][$delta]['alt'] = $alt_text;
+      }
       continue;
     }
 
@@ -184,57 +250,74 @@ function pdf_to_image_entity_presave($entity, $type) {
     $image_field_info = field_info_field($image_field);
 
     // Process the PDF file.
-    $imagick = new imagick();
-    $imagick->setResolution($settings['options']['resolution'], $settings['options']['resolution']);
+    // Wrap Imagick operations in a try/catch block to prevent any processing errors
+    // (e.g., malformed PDF, extension failure, or system memory limits) from
+    // throwing a fatal exception and triggering a White Screen of Death (WSOD).
+    try {
+      $imagick = new imagick();
+      $imagick->setResolution($settings['options']['resolution'], $settings['options']['resolution']);
 
-    // Set color space to the most compatible one (esp. for displays)
-    // to avoid color shifting.
-    $imagick->SetColorspace(Imagick::COLORSPACE_SRGB);
+      // Set color space to the most compatible one (esp. for displays)
+      // to avoid color shifting.
+      $imagick->SetColorspace(Imagick::COLORSPACE_SRGB);
 
-    $imagick->readImage($file->uri);
+      $imagick->readImage($file->uri);
 
-    // Avoid background of JPG-files being coincidentally converted to black
-    // due to possible error of Imagemagick.
-    if ($settings['format'] == 'jpg') {
-      $imagick->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
-      $imagick->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
-    }
-
-    $imagick->setImageFormat($settings['format']);
-    $total = $imagick->getNumberImages();
-
-    // Let the configured number of image field items (cardinality) limit the number of generated images.
-    $cardinality = $image_field_info['cardinality'];
-    $count = ($cardinality != -1 && $total > $cardinality) ? $cardinality : $total;
-
-    for ($page = 0; $page < $count; $page++) {
-      $imagick->setIteratorIndex($page);
-      if ($settings['options']['trim']) {
-        $imagick->trimImage(0);
+      // Avoid background of JPG-files being coincidentally converted to black
+      // due to possible error of Imagemagick.
+      if ($settings['format'] == 'jpg') {
+        $imagick->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+        $imagick->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
       }
 
-      // Get the temporary and final destinations for this image.
-      $filename = pathinfo($file->uri, PATHINFO_FILENAME) . '-' . $page . '.' . $settings['format'];
-      $temp_destination = file_directory_temp() . '/' . $filename;
+      $imagick->setImageFormat($settings['format']);
+      $total = $imagick->getNumberImages();
 
-      // Use the configured directory of the imagefield as destination.
-      $image_field_instance = field_info_instance($type, $image_field, $bundle);
-      $image_dir_uri = file_field_widget_uri($image_field_info, $image_field_instance);
-      // Create directory on the first run
-      file_prepare_directory($image_dir_uri, FILE_CREATE_DIRECTORY);
-      // Avoid adding a third slash if it's the files root directory identified by 'public://'.
-      if(substr($image_dir_uri, -1) != '/') {
-        $image_dir_uri .= '/';
+      // Let the configured number of image field items (cardinality) limit the number of generated images.
+      $cardinality = $image_field_info['cardinality'];
+      $count = ($cardinality != -1 && $total > $cardinality) ? $cardinality : $total;
+
+      for ($page = 0; $page < $count; $page++) {
+        $imagick->setIteratorIndex($page);
+        if ($settings['options']['trim']) {
+          $imagick->trimImage(0);
+        }
+
+        // Get the temporary and final destinations for this image.
+        $filename = pathinfo($file->uri, PATHINFO_FILENAME) . '-' . $page . '.' . $settings['format'];
+        $temp_destination = file_directory_temp() . '/' . $filename;
+
+        // Use the configured directory of the imagefield as destination.
+        $image_field_instance = field_info_instance($type, $image_field, $bundle);
+        $image_dir_uri = file_field_widget_uri($image_field_info, $image_dir_uri);
+        // Create directory on the first run
+        file_prepare_directory($image_dir_uri, FILE_CREATE_DIRECTORY);
+        // Avoid adding a third slash if it's the files root directory identified by 'public://'.
+        if (substr($image_dir_uri, -1) != '/') {
+          $image_dir_uri .= '/';
+        }
+        $final_destination = $image_dir_uri . $filename;
+
+        // Save the image.
+        $imagick->writeImage($temp_destination);
+        $data = file_get_contents($temp_destination);
+        $image = file_save_data($data, $final_destination, FILE_EXISTS_REPLACE);
+        $image_array = (array) $image;
+        $image_array['alt'] = $alt_text;
+        $entity->{$image_field}[$entity->langcode][] = $image_array;
       }
-      $final_destination = $image_dir_uri . $filename;
-
-      // Save the image.
-      $imagick->writeImage($temp_destination);
-      $data = file_get_contents($temp_destination);
-      $image = file_save_data($data, $final_destination, FILE_EXISTS_REPLACE);
-      $entity->{$image_field}[$entity->langcode][] = (array) $image;
+      $imagick->clear();
     }
-    $imagick->clear();
+    catch (Exception $e) {
+      // Log the exception in watchdog.
+      watchdog('pdf_to_image', 'Error generating images from PDF file %file: %message', array(
+        '%file' => $file->uri,
+        '%message' => $e->getMessage(),
+      ), WATCHDOG_ERROR);
+
+      // Display an admin/user message.
+      backdrop_set_message(t('An error occurred while generating images from the PDF file. Please check the site logs for details.'), 'error');
+    }
   }
 }
 

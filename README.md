@@ -19,7 +19,7 @@ Installation
   installed on your server.
 
   On a Debian-based system, this is as simple as running:
-  `sudo apt-get install imagemagick php5-imagick`.  
+  `sudo apt-get install imagemagick php-imagick`.  
   Note that support for installing Imagick is not provided by this module or its
   maintainer(s).
 
@@ -37,6 +37,19 @@ Installation
   file extensions' setting.  
   Note that you can set the 'Number of values' of the file field to whatever you
   like, but only the first file uploaded will be processed by this module.
+
+- Configure alternative (Alt) text for the generated images to ensure compliance
+  with website accessibility standards (e.g., WCAG/WAVE). Under **PDF to image**
+  settings on the file field:
+  - Select an **Alt text mode**:
+    - *Entity Title / Name* (Default): Uses the parent entity's title or fallback name.
+    - *Source PDF Filename*: Uses the file name of the source PDF (without extension).
+    - *Custom Token Pattern*: Allows specifying custom tokens (e.g., `[node:title]`).
+      A token browser is provided.
+    - *Leave Empty / None*: Generates images with empty alt attributes.
+  - Changing the Alt text mode and resaving the entity will automatically update
+    the alt text on all existing generated images without performing the expensive
+    PDF image regeneration.
 
 - Create an entity, upload a PDF file, and the image(s) will be generated on
   save.
