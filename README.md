@@ -69,8 +69,9 @@ Credits
 -------
 
 - Written for Backdrop by [Peter Anderson](https://github.com/BWPanda).
-- Inspired by Drupal's '[PDF to Imagefield](https://www.drupal.org/project/pdf_to_imagefield)'
+- - Inspired by Drupal's '[PDF to Imagefield](https://www.drupal.org/project/pdf_to_imagefield)'
   module.
+- Alt text support and error/WSOD handling added by [Steve (albanycomputers)](https://github.com/albanycomputers).
 
 License
 -------

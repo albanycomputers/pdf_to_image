@@ -1,6 +1,6 @@
 <?php
 /**
- * Create images from one-or-more pages of a PDF file.
+ * Create images from one-or-more pages of a PDF file with ALT text support and error handling to prevent WSOD.
  */
 
 /**
