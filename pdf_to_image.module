@@ -289,7 +289,7 @@ function pdf_to_image_entity_presave($entity, $type) {
 
         // Use the configured directory of the imagefield as destination.
         $image_field_instance = field_info_instance($type, $image_field, $bundle);
-        $image_dir_uri = file_field_widget_uri($image_field_info, $image_dir_uri);
+        $image_dir_uri = file_field_widget_uri($image_field_info, $image_field_instance);
         // Create directory on the first run
         file_prepare_directory($image_dir_uri, FILE_CREATE_DIRECTORY);
         // Avoid adding a third slash if it's the files root directory identified by 'public://'.
