@@ -110,6 +110,16 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
       ),
     ),
   );
+
+  $form['instance']['settings']['pdf_to_image']['pdf_to_image_update_alt'] = array(
+    '#type' => 'submit',
+    '#value' => t('Update existing image Alt text'),
+    '#suffix' => '<div class="description">' . t('Clicking this button saves the settings above and runs the batch update process immediately. Existing images will have their Alt text updated without being regenerated.') . '</div>',
+    '#submit' => array('field_ui_field_edit_form_submit', 'pdf_to_image_update_alt_submit'),
+    '#access' => !empty($defaults['image_field']),
+    '#states' => $states,
+  );
+
   $form['instance']['settings']['pdf_to_image']['options'] = array(
     '#type' => 'fieldset',
     '#title' => t('Options'),
@@ -130,6 +140,82 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
     '#description' => t("Crop the edges of the image that are the same color as the background."),
     '#default_value' => $defaults['options']['trim'],
   );
+}
+
+/**
+ * Submit handler for the "Update existing image Alt text" button.
+ *
+ * Runs the Backdrop Batch API to update alt text of existing image field items.
+ */
+function pdf_to_image_update_alt_submit($form, &$form_state) {
+  $instance = $form['#instance'];
+  $entity_type = $instance['entity_type'];
+  $bundle = $instance['bundle'];
+  $field_name = $instance['field_name'];
+
+  // Query all entities of this type and bundle where the source file field has data.
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', $entity_type)
+    ->entityCondition('bundle', $bundle)
+    ->fieldCondition($field_name, 'fid', 'NULL', '!=');
+
+  $result = $query->execute();
+
+  if (empty($result[$entity_type])) {
+    backdrop_set_message(t('No entities found with files uploaded in this field.'));
+    return;
+  }
+
+  $ids = array_keys($result[$entity_type]);
+
+  $operations = array();
+  // Process in chunks of 10 to ensure stability and avoid timeouts.
+  $chunks = array_chunk($ids, 10);
+  foreach ($chunks as $chunk) {
+    $operations[] = array(
+      'pdf_to_image_update_alt_batch_op',
+      array($entity_type, $chunk),
+    );
+  }
+
+  $batch = array(
+    'title' => t('Updating Alt Text'),
+    'operations' => $operations,
+    'finished' => 'pdf_to_image_update_alt_batch_finished',
+    'file' => backdrop_get_path('module', 'pdf_to_image') . '/pdf_to_image.module',
+  );
+
+  batch_set($batch);
+}
+
+/**
+ * Batch operation callback to load entities and update image Alt text.
+ */
+function pdf_to_image_update_alt_batch_op($entity_type, $ids, &$context) {
+  $entities = entity_load($entity_type, $ids);
+  foreach ($entities as $entity) {
+    // Saving the entity triggers pdf_to_image_entity_presave(), which
+    // updates the alternative text of existing generated images.
+    $entity->save();
+  }
+
+  if (!isset($context['results']['updated'])) {
+    $context['results']['updated'] = 0;
+  }
+  $context['results']['updated'] += count($ids);
+}
+
+/**
+ * Batch finished callback.
+ */
+function pdf_to_image_update_alt_batch_finished($success, $results, $operations) {
+  if ($success) {
+    $count = isset($results['updated']) ? $results['updated'] : 0;
+    backdrop_set_message(t('Successfully updated the alt text for @count entities.', array('@count' => $count)));
+  }
+  else {
+    backdrop_set_message(t('An error occurred during the alt text update process.'), 'error');
+  }
 }
 
 /**
