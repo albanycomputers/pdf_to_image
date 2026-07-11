@@ -1,6 +1,6 @@
 <?php
 /**
- * Create images from one-or-more pages of a PDF file with ALT text support and error handling to prevent WSOD.
+ * Create images from PDF pages with configurable alt-text generation.
  */
 
 /**
@@ -31,7 +31,7 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
   }
   // Ensure default values are populated for new fields or older configurations.
   $defaults += array(
-    'pdf_to_image_alt_mode' => 'title',
+    'pdf_to_image_alt_mode' => 'none',
     'pdf_to_image_alt_token' => '[node:title]',
   );
 
@@ -88,12 +88,12 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
   $form['instance']['settings']['pdf_to_image']['pdf_to_image_alt_mode'] = array(
     '#type' => 'select',
     '#title' => t('Alt text mode'),
-    '#description' => t('Choose how alternative (alt) text is generated for accessibility compliance (e.g. WAVE or WCAG). This alt text will be saved along with the generated image files.'),
+    '#description' => t('Choose how alternative (alt) text is generated for accessibility compliance (e.g. WCAG). This alt text will be saved when the image is generated.'),
     '#options' => array(
+      'none' => t('Leave Alone / None'),
       'title' => t('Entity Title / Name'),
       'filename' => t('Source PDF Filename'),
       'token' => t('Custom Token Pattern'),
-      'none' => t('Leave Empty / None'),
     ),
     '#default_value' => $defaults['pdf_to_image_alt_mode'],
     '#states' => $states,
@@ -111,13 +111,30 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
     ),
   );
 
+  // Hide the button (and its help text below) when no image field is selected,
+  // or when the mode is 'none' (in which case existing alt text is left
+  // untouched, so there is nothing to update).
+  $update_alt_states = array(
+    'invisible' => array(
+      array(':input[name$="[pdf_to_image][image_field]"]' => array('value' => '')),
+      'or',
+      array(':input[name$="[pdf_to_image][pdf_to_image_alt_mode]"]' => array('value' => 'none')),
+    ),
+  );
   $form['instance']['settings']['pdf_to_image']['pdf_to_image_update_alt'] = array(
     '#type' => 'submit',
     '#value' => t('Update existing image Alt text'),
-    '#suffix' => '<div class="description">' . t('Clicking this button saves the settings above and runs the batch update process immediately. Existing images will have their Alt text updated without being regenerated.') . '</div>',
     '#submit' => array('field_ui_field_edit_form_submit', 'pdf_to_image_update_alt_submit'),
     '#access' => !empty($defaults['image_field']),
-    '#states' => $states,
+    '#states' => $update_alt_states,
+  );
+  // Help text as its own element so #states can hide it alongside the button
+  // (a button's #suffix renders as a sibling and would stay visible).
+  $form['instance']['settings']['pdf_to_image']['pdf_to_image_update_alt_help'] = array(
+    '#type' => 'item',
+    '#markup' => '<div class="description">' . t('Clicking this button saves the form settings and then runs the batch update process immediately. Existing images will have their Alt text updated without being regenerated.') . '</div>',
+    '#access' => !empty($defaults['image_field']),
+    '#states' => $update_alt_states,
   );
 
   $form['instance']['settings']['pdf_to_image']['options'] = array(
@@ -259,7 +276,7 @@ function pdf_to_image_entity_presave($entity, $type) {
   foreach ($file_fields as $file_field) {
     $settings = $file_field['settings']['pdf_to_image'];
     $settings += array(
-      'pdf_to_image_alt_mode' => 'title',
+      'pdf_to_image_alt_mode' => 'none',
       'pdf_to_image_alt_token' => '[node:title]',
     );
     $image_field = $settings['image_field'];
@@ -317,9 +334,14 @@ function pdf_to_image_entity_presave($entity, $type) {
 
     // Check if this file already exists and, if so, move on.
     if (!empty($old_files) && $file->fid == $old_files[0]['fid'] && !empty($new_images)) {
-      // Update alt text on the existing images if they changed.
-      foreach ($new_images as $delta => $image_item) {
-        $entity->{$image_field}[$entity->langcode][$delta]['alt'] = $alt_text;
+      // Update alt text on the existing images, unless the mode is 'none', in
+      // which case existing alt text is left untouched. An empty alt is better
+      // than no alt for a11y, but deleting or overwriting a manually-set one
+      // is worse.
+      if ($settings['pdf_to_image_alt_mode'] != 'none') {
+        foreach ($new_images as $delta => $image_item) {
+          $entity->{$image_field}[$entity->langcode][$delta]['alt'] = $alt_text;
+        }
       }
       continue;
     }
