@@ -101,7 +101,8 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
   $form['instance']['settings']['pdf_to_image']['pdf_to_image_alt_token'] = array(
     '#type' => 'textfield',
     '#title' => t('Alt text token pattern'),
-    '#description' => t('Specify a pattern of tokens to construct the alt text. Example: <code>[node:title]</code>. This field supports tokens.') . ' ' . theme('token_tree_link', array('token_types' => array($instance['entity_type']))),
+    '#description' => t('Specify a pattern of tokens to construct the alt text. Example: <code>[node:title]</code>.<br>This field supports tokens: ') .
+      theme('token_tree_link', array('token_types' => array($instance['entity_type']))),
     '#default_value' => $defaults['pdf_to_image_alt_token'],
     '#states' => array(
       'visible' => array(
