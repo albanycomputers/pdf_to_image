@@ -318,7 +318,9 @@ function pdf_to_image_entity_presave($entity, $type) {
         break;
 
       case 'token':
-        $raw_alt = token_replace($settings['pdf_to_image_alt_token'], array($type => $entity));
+        // Unsanitized on purpose: backdrop_attributes() runs it through check_plain() on render anyways.
+        $raw_alt = token_replace($settings['pdf_to_image_alt_token'], array($type => $entity),
+          array('sanitize' => FALSE));
         break;
 
       case 'none':
