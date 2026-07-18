@@ -281,6 +281,11 @@ function pdf_to_image_entity_presave($entity, $type) {
     );
     $image_field = $settings['image_field'];
 
+    // Determine the language key to write image field values under. This must
+    // match what the Field API uses when reading/saving (LANGUAGE_NONE for
+    // non-translatable fields), which is not necessarily $entity->langcode.
+    $langcode = field_language($type, $entity, $image_field);
+
     // Get the old and new file for this field and its associated image field.
     $old_files = array();
     $old_images = array();
@@ -293,7 +298,7 @@ function pdf_to_image_entity_presave($entity, $type) {
 
     // If there are no files here, clear the associated image field and move on.
     if (empty($new_files)) {
-      $entity->{$image_field}[$entity->langcode] = array();
+      $entity->{$image_field}[$langcode] = array();
       continue;
     }
 
@@ -340,7 +345,7 @@ function pdf_to_image_entity_presave($entity, $type) {
       // is worse.
       if ($settings['pdf_to_image_alt_mode'] != 'none') {
         foreach ($new_images as $delta => $image_item) {
-          $entity->{$image_field}[$entity->langcode][$delta]['alt'] = $alt_text;
+          $entity->{$image_field}[$langcode][$delta]['alt'] = $alt_text;
         }
       }
       continue;
@@ -352,7 +357,7 @@ function pdf_to_image_entity_presave($entity, $type) {
     }
 
     // Clear the associated image field.
-    $entity->{$image_field}[$entity->langcode] = array();
+    $entity->{$image_field}[$langcode] = array();
 
     // Get the field array of the image field.
     $image_field_info = field_info_field($image_field);
@@ -412,7 +417,7 @@ function pdf_to_image_entity_presave($entity, $type) {
         $image = file_save_data($data, $final_destination, FILE_EXISTS_REPLACE);
         $image_array = (array) $image;
         $image_array['alt'] = $alt_text;
-        $entity->{$image_field}[$entity->langcode][] = $image_array;
+        $entity->{$image_field}[$langcode][] = $image_array;
       }
       $imagick->clear();
     }
