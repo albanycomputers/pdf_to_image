@@ -124,7 +124,7 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
   );
   $form['instance']['settings']['pdf_to_image']['pdf_to_image_update_alt'] = array(
     '#type' => 'submit',
-    '#value' => t('Update existing image Alt text'),
+    '#value' => t('Update existing image alt text'),
     '#submit' => array('field_ui_field_edit_form_submit', 'pdf_to_image_update_alt_submit'),
     '#access' => !empty($defaults['image_field']),
     '#states' => $update_alt_states,
@@ -133,7 +133,7 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
   // (a button's #suffix renders as a sibling and would stay visible).
   $form['instance']['settings']['pdf_to_image']['pdf_to_image_update_alt_help'] = array(
     '#type' => 'item',
-    '#markup' => '<div class="description">' . t('Clicking this button saves the form settings and then runs the batch update process immediately. Existing images will have their Alt text updated without being regenerated.') . '</div>',
+    '#markup' => '<div class="description">' . t('Clicking this button saves the form settings and then runs the batch update process immediately. Existing images will have their alt text updated without being regenerated.') . '</div>',
     '#access' => !empty($defaults['image_field']),
     '#states' => $update_alt_states,
   );
@@ -161,7 +161,7 @@ function pdf_to_image_form_field_ui_field_edit_form_alter(&$form, &$form_state, 
 }
 
 /**
- * Submit handler for the "Update existing image Alt text" button.
+ * Submit handler for the "Update existing image alt text" button.
  *
  * Runs the Backdrop Batch API to update alt text of existing image field items.
  */
@@ -171,11 +171,14 @@ function pdf_to_image_update_alt_submit($form, &$form_state) {
   $bundle = $instance['bundle'];
   $field_name = $instance['field_name'];
 
-  // Query all entities of this type and bundle where the source file field has data.
+  // Query all entities of this type and bundle where the source file field has
+  // data. Comparing 'fid' against a positive integer keeps the condition valid
+  // on any database backend; a string comparison would rely on the database
+  // silently casting it.
   $query = new EntityFieldQuery();
   $query->entityCondition('entity_type', $entity_type)
     ->entityCondition('bundle', $bundle)
-    ->fieldCondition($field_name, 'fid', 'NULL', '!=');
+    ->fieldCondition($field_name, 'fid', 0, '>');
 
   $result = $query->execute();
 
@@ -197,7 +200,7 @@ function pdf_to_image_update_alt_submit($form, &$form_state) {
   }
 
   $batch = array(
-    'title' => t('Updating Alt Text'),
+    'title' => t('Updating alt text'),
     'operations' => $operations,
     'finished' => 'pdf_to_image_update_alt_batch_finished',
     'file' => backdrop_get_path('module', 'pdf_to_image') . '/pdf_to_image.module',
@@ -207,7 +210,7 @@ function pdf_to_image_update_alt_submit($form, &$form_state) {
 }
 
 /**
- * Batch operation callback to load entities and update image Alt text.
+ * Batch operation callback to load entities and update image alt text.
  */
 function pdf_to_image_update_alt_batch_op($entity_type, $ids, &$context) {
   $entities = entity_load($entity_type, $ids);
